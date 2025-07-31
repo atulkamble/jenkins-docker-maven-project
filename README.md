@@ -1,4 +1,4 @@
-Here's a **complete Jenkins + Docker + Maven project setup**, including:
+**Complete Jenkins + Docker + Maven project setup**, including:
 
 * A simple Maven Java app
 * A Dockerfile to containerize the app
