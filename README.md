@@ -188,3 +188,34 @@ git add .
 git commit -m "Initial commit - Jenkins + Docker + Maven pipeline project"
 git push -u origin main
 ```
+docker, docker pipeline, blue ocean
+
+
+## ✅ Create DockerHub Credentials in Jenkins
+
+To resolve this, you must **add your DockerHub credentials** in Jenkins.
+
+### 🔐 Step-by-Step to Add DockerHub Credentials:
+
+1. **Go to Jenkins Dashboard**
+
+2. Click **"Manage Jenkins"**
+
+3. Click **"Credentials"**
+
+4. Under `(global)` → Click **"(global) credentials (unrestricted)"**
+
+5. Click **"Add Credentials"**
+
+6. Fill in the form:
+
+   * **Kind**: `Username with password`
+   * **Username**: *Your DockerHub username*
+   * **Password**: *Your DockerHub password or PAT*
+   * **ID**: `dockerhub-creds`  ✅ *This must match your `Jenkinsfile`*
+   * **Description**: `DockerHub login for pushing images`
+
+7. Click **Save**
+
+
+
