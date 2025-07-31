@@ -18,6 +18,12 @@ pipeline {
             }
         }
 
+        stage('Print App Output (Local JAR Run)') {
+            steps {
+                sh 'java -jar target/jenkins-docker-maven-1.0-SNAPSHOT.jar'
+            }
+        }
+
         stage('Build Docker Image') {
             steps {
                 script {
@@ -35,6 +41,12 @@ pipeline {
                         }
                     }
                 }
+            }
+        }
+
+        stage('Print App Output (Docker Run)') {
+            steps {
+                sh "docker run --rm ${IMAGE_NAME}:latest"
             }
         }
     }
