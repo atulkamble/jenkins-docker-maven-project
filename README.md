@@ -1,221 +1,318 @@
-**Complete Jenkins + Docker + Maven project setup**, including:
+# Jenkins + Docker + Maven (GitHub → Docker Hub) — Step‑by‑Step Guide
 
-* A simple Maven Java app
-* A Dockerfile to containerize the app
-* Jenkins pipeline to build, test, and package using Maven
-* Docker image creation and push to Docker Hub (optional)
-
----
-
-## 🔧 Project Structure
-
-```
-jenkins-docker-maven-project/
-├── Dockerfile
-├── Jenkinsfile
-├── pom.xml
-└── src/
-    └── main/
-        └── java/
-            └── com/example/
-                └── App.java
-```
+> **Security first:** You pasted a GitHub Personal Access Token (PAT). If that token is real and active, **revoke it immediately** and create a new one with the minimum required scopes. Never commit or share tokens in chat, screenshots, or logs.
+>
+> * GitHub → **Settings › Developer settings › Personal access tokens** → Revoke the leaked token and **generate a new one** (classic scope: `repo` or fine‑grained with read for your repo).
 
 ---
 
-## 1️⃣ Java App (`App.java`)
+## 1) Overview
 
-`src/main/java/com/example/App.java`:
+You’ll set up a Jenkins Pipeline that:
 
-```java
-package com.example;
+1. Checks out code from **GitHub** (your fork of `jenkins-docker-maven-project`).
+2. Builds the Java app with **Maven**.
+3. Builds and tags a Docker image.
+4. Pushes the image to **Docker Hub**.
 
-public class App {
-    public static void main(String[] args) {
-        System.out.println("Hello from Maven + Jenkins + Docker!");
-    }
-}
-```
+We’ll do this using **Pipeline from SCM**, with credentials for both GitHub and Docker Hub.
 
 ---
 
-## 2️⃣ Maven Config (`pom.xml`)
+## 2) Prerequisites
 
-```xml
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
-                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
-    <modelVersion>4.0.0</modelVersion>
-    <groupId>com.example</groupId>
-    <artifactId>jenkins-docker-maven</artifactId>
-    <version>1.0-SNAPSHOT</version>
-    <build>
-        <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.8.1</version>
-                <configuration>
-                    <source>11</source>
-                    <target>11</target>
-                </configuration>
-            </plugin>
-        </plugins>
-    </build>
-</project>
-```
+* **Jenkins** (controller or agent) with:
+
+  * **Git** plugin and Git installed on the node (`git --version`).
+  * **Pipeline** and **Credentials Binding** plugins (usually included by default).
+  * **Docker** installed on the build node:
+
+    * Node can run `docker build`, `docker login`, `docker push`.
+    * Build user (e.g., `jenkins`) has permission to access the Docker daemon (often by adding to the `docker` group, or by using a Docker-in-Docker executor/agent).
+  * **Java** and **Maven** available on the build node or installed via tools in Jenkins.
+* **Docker Hub account** (username + access token/password).
+* **GitHub** account and a **fork** of the repo.
+
+> **Tip:** If your Jenkins is running in Docker, mount the host Docker socket or use a Docker agent image that includes Docker CLI and can access a DinD service.
 
 ---
 
-## 3️⃣ Dockerfile
+## 3) Fork the repository
 
-```Dockerfile
-FROM maven:3.8.5-openjdk-11 AS builder
-WORKDIR /app
-COPY . .
-RUN mvn clean package
-
-FROM openjdk:11
-WORKDIR /app
-COPY --from=builder /app/target/jenkins-docker-maven-1.0-SNAPSHOT.jar app.jar
-CMD ["java", "-jar", "app.jar"]
-```
+1. Open: `https://github.com/atulkamble/jenkins-docker-maven-project`.
+2. Click **Fork** to create your own copy under your GitHub account.
 
 ---
 
-## 4️⃣ Jenkinsfile (Pipeline Script)
+## 4) Update the `Jenkinsfile` in your fork
+
+Edit these two items:
+
+1. **Docker Hub image name** — replace with **your** Docker Hub username:
+
+```groovy
+// e.g., for user "atuljkamble"
+IMAGE_NAME = "atuljkamble/jenkins-docker-maven"
+```
+
+2. **Git remote URL** — point to **your** fork:
+
+```groovy
+// Example (replace github-user-name with your username)
+// git branch: 'main', url: 'https://github.com/github-user-name/jenkins-docker-maven-project.git'
+```
+
+> You can either hardcode these in the Jenkinsfile, or parameterize them. A fully‑working Jenkinsfile template is provided in the **Appendix**.
+
+---
+
+## 5) Create Jenkins credentials
+
+You’ll need **two** credentials.
+
+### 5.1 GitHub credentials (for Pipeline SCM checkout)
+
+* In Jenkins: **Manage Jenkins → Credentials → System → Global → Add Credentials**
+* **Kind:** `Username with password`
+* **ID (recommended):** `github-creds`
+* **Username:** your GitHub username
+* **Password:** your **GitHub PAT** (newly created; minimum scope `repo` for private repos, or fine‑grained with read on your fork). For public forks, a token is still recommended to avoid rate limits.
+
+> **Never** paste tokens into Jenkinsfile. Keep them in Credentials.
+
+### 5.2 Docker Hub credentials (for docker login & push)
+
+* **Kind:** `Username with password`
+* **ID:** `dockerhub-creds`
+* **Username:** your Docker Hub username
+* **Password:** Docker Hub **access token** (recommended) or your Docker Hub password.
+
+---
+
+## 6) Create the Pipeline job
+
+1. In Jenkins, click **New Item** → **Pipeline**.
+2. **Name:** `jenkins-docker-maven-project`
+3. Click **OK**.
+4. In **Pipeline** section:
+
+   * **Definition:** *Pipeline script from SCM*
+   * **SCM:** *Git*
+   * **Repository URL:**
+
+     * `https://github.com/github-user-name/jenkins-docker-maven-project.git`
+   * **Credentials:** select `github-creds`
+   * **Branch Specifier:** `*/main` (or your default branch)
+   * **Script Path:** `Jenkinsfile` (if you kept default)
+5. **Save**.
+
+---
+
+## 7) Configure Docker on the build node (quick checks)
+
+* `docker --version` must work.
+* `docker info` should not error.
+* Ensure the Jenkins build user can run Docker commands without sudo, or configure the pipeline to use `sudo docker ...` where appropriate.
+
+---
+
+## 8) Run the Pipeline
+
+1. Open your job `jenkins-docker-maven-project`.
+2. Click **Build Now**.
+3. Open **Build #N** → **Console Output** to follow logs.
+
+Expected stages:
+
+* **Checkout SCM** (from GitHub using `github-creds`)
+* **Maven Build** (`mvn -B -DskipTests package` or similar)
+* **Docker Build & Tag**
+* **Docker Login & Push** (using `dockerhub-creds`)
+
+---
+
+## 9) Verify the image on Docker Hub
+
+After success, visit Docker Hub → **Repositories** and verify that `jenkins-docker-maven:latest` (and/or the build tag) is pushed.
+
+---
+
+## 10) Common errors & fixes
+
+* **`Selected Git installation does not exist. Using Default`**
+
+  * Ensure Git is installed on the node and configured in **Manage Jenkins → Tools** (optional, works with system git).
+
+* **`git: not found`** or `git --version` shows error
+
+  * Install git on the node: e.g., `sudo apt-get update && sudo apt-get install -y git`.
+
+* **Permission denied / cannot access Docker daemon**
+
+  * Add Jenkins user to `docker` group (Linux): `sudo usermod -aG docker jenkins && sudo systemctl restart jenkins` (then re-login the session/agent).
+
+* **`docker login` fails**
+
+  * Re‑check `dockerhub-creds` username/token. If 2FA is enabled, you must use a Docker Hub access token, not your password.
+
+* **Rate limit or auth issues on GitHub**
+
+  * Ensure `github-creds` PAT is valid. Rotate if leaked. For public repos, a PAT helps avoid rate limiting.
+
+* **`mvn: command not found`**
+
+  * Install Maven on the node or configure a Jenkins tool installation and add to PATH in the pipeline.
+
+---
+
+## 11) Appendix — Jenkinsfile (ready‑to‑use template)
+
+This Declarative Pipeline expects two credentials:
+
+* `github-creds` (Username/Password with GitHub PAT as password)
+* `dockerhub-creds` (Username/Password with Docker Hub token as password)
+
+**What it does:**
+
+* Checks out from your fork’s `main` branch
+* Builds with Maven (skipping tests by default)
+* Builds a Docker image and tags it as `latest` and `${BUILD_NUMBER}`
+* Logs into Docker Hub and pushes both tags
 
 ```groovy
 pipeline {
-    agent any
+  agent any
 
-    environment {
-        IMAGE_NAME = "atuljkamble/jenkins-docker-maven"
+  environment {
+    // Change to your Docker Hub username/repo
+    IMAGE_NAME = "atuljkamble/jenkins-docker-maven"
+    // Optional: customize Java/Maven goals
+    MAVEN_GOALS = "-B -DskipTests clean package"
+  }
+
+  options {
+    timestamps()
+    ansiColor('xterm')
+  }
+
+  triggers { }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        checkout([
+          $class: 'GitSCM',
+          branches: [[name: '*/main']],
+          userRemoteConfigs: [[
+            url: 'https://github.com/github-user-name/jenkins-docker-maven-project.git',
+            credentialsId: 'github-creds'
+          ]]
+        ])
+      }
     }
 
-    stages {
-        stage('Checkout') {
-            steps {
-                git branch: 'main', url: 'https://github.com/atulkamble/jenkins-docker-maven-project.git'
-            }
-        }
-
-        stage('Build with Maven') {
-            steps {
-                sh 'mvn clean package'
-            }
-        }
-
-        stage('Build Docker Image') {
-            steps {
-                script {
-                    dockerImage = docker.build("${IMAGE_NAME}:latest")
-                }
-            }
-        }
-
-        stage('Push to DockerHub') {
-            steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                    script {
-                        docker.withRegistry('https://index.docker.io/v1/', 'dockerhub-creds') {
-                            dockerImage.push()
-                        }
-                    }
-                }
-            }
-        }
+    stage('Maven Build') {
+      tools { maven 'Maven-3' } // Optional: if configured under Manage Jenkins > Tools
+      steps {
+        sh "mvn ${env.MAVEN_GOALS}"
+        sh 'ls -lh target || true'
+      }
     }
+
+    stage('Docker Build & Tag') {
+      steps {
+        script {
+          def buildTag = env.BUILD_NUMBER
+          sh "docker build -t ${IMAGE_NAME}:latest ."
+          sh "docker tag ${IMAGE_NAME}:latest ${IMAGE_NAME}:${buildTag}"
+        }
+      }
+    }
+
+    stage('Docker Login & Push') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+          sh 'echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin'
+          sh "docker push ${IMAGE_NAME}:latest"
+          sh "docker push ${IMAGE_NAME}:${BUILD_NUMBER}"
+        }
+      }
+    }
+  }
+
+  post {
+    always {
+      sh 'docker logout || true'
+      archiveArtifacts artifacts: 'target/**/*.jar', onlyIfSuccessful: false
+    }
+    success {
+      echo "Success: pushed ${IMAGE_NAME}:latest and :${BUILD_NUMBER} to Docker Hub"
+    }
+    failure {
+      echo 'Build failed. See console output for details.'
+    }
+  }
 }
 ```
 
-> 🔐 `dockerhub-creds`: Add your DockerHub username/password in Jenkins credentials (ID: `dockerhub-creds`).
+> **Note:** If your Jenkins node requires `sudo` for Docker, prepend `sudo` to the `docker` commands (or better, fix group permissions).
 
 ---
 
-## 5️⃣ Setup Jenkins Server (Optional Quickstart on Docker)
+## 12) Quick Reference — The items you asked to do
 
-```bash
-docker run -d --name jenkins \
-  -u root -p 8080:8080 -p 50000:50000 \
-  -v jenkins_home:/var/jenkins_home \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  jenkins/jenkins:lts
-```
+1. **Fork repo:** `https://github.com/atulkamble/jenkins-docker-maven-project`
 
-Install plugins:
+2. **Edit Jenkinsfile:**
 
-* Docker
-* Pipeline
-* Git
-* Maven Integration
+   * Set Docker Hub username → `IMAGE_NAME = "<dockerhub-user>/jenkins-docker-maven"`
+   * Set Git URL → `'https://github.com/<github-user-name>/jenkins-docker-maven-project.git'`
 
----
+3. **Create pipeline:** name it `jenkins-docker-maven-project`.
 
-## ✅ Run Flow
+4. **Select Pipeline from SCM:**
 
-1. Push code to GitHub
-2. Jenkins Pipeline runs:
+   * SCM: Git
+   * URL: `https://github.com/<github-user-name>/jenkins-docker-maven-project.git`
+   * Credentials: `github-creds`
 
-   * Pulls code
-   * Builds using Maven
-   * Creates Docker image
-   * Pushes image to Docker Hub
+5. **Credentials – Git:** Username (GitHub user), Password (**PAT** token).
+
+6. **Credentials – Docker Hub:** `dockerhub-creds` → Username + **Docker Hub token**.
+
+7. **Run pipeline** (Build Now).
+
+8. **Check Console Output** for each stage’s logs and errors.
 
 ---
 
-## 🔗 GitHub Repo
+## 13) (Optional) Parameterize the job
 
-Let's name the GitHub repository:
+If you want to reuse the same job for different forks/repos or tags, add parameters and reference them in the Jenkinsfile:
 
-### ✅ **`jenkins-docker-maven-project`**
-
-You can use this name when creating your repo on GitHub:
-
-```bash
-gh repo create jenkins-docker-maven-project --public --source=. --remote=origin --push
+```groovy
+parameters {
+  string(name: 'GIT_URL', defaultValue: 'https://github.com/github-user-name/jenkins-docker-maven-project.git', description: 'Git repository URL')
+  string(name: 'GIT_BRANCH', defaultValue: 'main', description: 'Branch to build')
+  string(name: 'IMAGE_NAME', defaultValue: 'dockerhub-user/jenkins-docker-maven', description: 'Docker image name')
+}
 ```
 
-Or manually push your code:
+Then use `${params.GIT_URL}`, `${params.GIT_BRANCH}`, etc., in the `checkout` step and `docker` commands.
 
-### 🧾 GitHub Push Commands
+---
 
-```bash
-git init
-git remote add origin https://github.com/<your-username>/jenkins-docker-maven-project.git
-git add .
-git commit -m "Initial commit - Jenkins + Docker + Maven pipeline project"
-git push -u origin main
-```
-docker, docker pipeline, blue ocean
+## 14) Troubleshooting checklist (quick)
 
+* [ ] Git installed and reachable on agent
+* [ ] Maven installed or tool configured
+* [ ] Docker CLI installed and daemon reachable
+* [ ] Jenkins user in `docker` group (or no‑sudo required)
+* [ ] Correct credentials IDs: `github-creds`, `dockerhub-creds`
+* [ ] Jenkinsfile path correct (`Jenkinsfile` at repo root)
+* [ ] Branch name matches (`main` vs `master`)
+* [ ] PAT and Docker tokens valid (rotate if any doubt)
 
-## ✅ Create DockerHub Credentials in Jenkins
+---
 
-To resolve this, you must **add your DockerHub credentials** in Jenkins.
-
-### 🔐 Step-by-Step to Add DockerHub Credentials:
-
-1. **Go to Jenkins Dashboard**
-
-2. Click **"Manage Jenkins"**
-
-3. Click **"Credentials"**
-
-4. Under `(global)` → Click **"(global) credentials (unrestricted)"**
-
-5. Click **"Add Credentials"**
-
-6. Fill in the form:
-
-   * **Kind**: `Username with password`
-   * **Username**: *Your DockerHub username*
-   * **Password**: *Your DockerHub password or PAT*
-   * **ID**: `dockerhub-creds`  ✅ *This must match your `Jenkinsfile`*
-   * **Description**: `DockerHub login for pushing images`
-
-7. Click **Save**
-
-
-------------------------------------------------------------------------
+**You’re set!** Trigger a build and watch the image land on Docker Hub. If you want, I can also provide a variant that runs tests, tags by Git commit SHA, and pushes a `release-*` tag only on `main` merges.
